@@ -21,3 +21,10 @@ go.work
 .Spotlight-V100
 .Trashes
 Thumbs.db
+
+
+# environment variables file
+.env
+.env.local
+.env.*.local
+!.env.example
