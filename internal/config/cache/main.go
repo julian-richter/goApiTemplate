@@ -1,20 +1,32 @@
 package cache
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/julian-richter/ApiTemplate/pkg"
 )
 
 // Load initializes a Config struct by fetching environment variables with fallbacks to default values.
-func Load() Config {
-	port, _ := strconv.Atoi(pkg.GetEnv("CACHE_PORT", "6379"))
-	db, _ := strconv.Atoi(pkg.GetEnv("CACHE_DB", "0"))
+func Load() (Config, error) {
+	port, err := strconv.Atoi(env.GetEnv("CACHE_PORT", "6379"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid CACHE_PORT: %w", err)
+	}
+
+	db, err := strconv.Atoi(env.GetEnv("CACHE_DB", "0"))
+	if err != nil {
+		return Config{}, fmt.Errorf("invalid CACHE_DB: %w", err)
+	}
+
+	if db < 0 {
+		return Config{}, fmt.Errorf("[config] CACHE_DB must be non-negative, got %d", db)
+	}
 
 	return Config{
-		Host:     pkg.GetEnv("CACHE_HOST", "localhost"),
+		Host:     env.GetEnv("CACHE_HOST", "localhost"),
 		Port:     port,
-		Password: pkg.GetEnv("CACHE_PASSWORD", ""),
+		Password: env.GetEnv("CACHE_PASSWORD", ""),
 		DB:       db,
-	}
+	}, nil
 }

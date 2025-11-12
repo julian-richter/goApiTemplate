@@ -15,12 +15,28 @@ type Config struct {
 
 // Load initializes and returns the top-level configuration by aggregating
 // cache, database, and application configurations.
-func Load() Config {
+func Load() (Config, error) {
+	// Load environment variables (optional env file)
 	LoadEnv()
 
-	return Config{
-		Cache:    cache.Load(),
-		Database: database.Load(),
-		App:      app.Load(),
+	cacheCfg, err := cache.Load()
+	if err != nil {
+		return Config{}, err
 	}
+
+	dbCfg, err := database.Load()
+	if err != nil {
+		return Config{}, err
+	}
+
+	appCfg, err := app.Load()
+	if err != nil {
+		return Config{}, err
+	}
+
+	return Config{
+		Cache:    cacheCfg,
+		Database: dbCfg,
+		App:      appCfg,
+	}, nil
 }
