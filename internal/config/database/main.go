@@ -4,19 +4,20 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/julian-richter/ApiTemplate/pkg"
+	env "github.com/julian-richter/ApiTemplate/pkg"
 )
 
 // Load initializes a Config struct by fetching environment variables with fallbacks to default values.
 func Load() (Config, error) {
-	port, err := strconv.Atoi(env.GetEnv("DB_PORT", "5432"))
+	portStr := env.GetEnv("DB_PORT", "5432")
+	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("invalid DB_PORT value %q: %w", portStr, err)
 	}
 
-	// Check if port is valid
-	if port < 0 {
-		return Config{}, fmt.Errorf("DB_PORT must be non-negative, got %d", port)
+	// Check if the port is valid
+	if port < 0 || port > 65535 {
+		return Config{}, fmt.Errorf("DB_PORT must be non-negative or above 65535, got %d", port)
 	}
 
 	return Config{

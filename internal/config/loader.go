@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+
 	"github.com/julian-richter/ApiTemplate/internal/config/app"
 	"github.com/julian-richter/ApiTemplate/internal/config/cache"
 	"github.com/julian-richter/ApiTemplate/internal/config/database"
@@ -21,17 +23,17 @@ func Load() (Config, error) {
 
 	cacheCfg, err := cache.Load()
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to load cache config: %w", err)
 	}
 
 	dbCfg, err := database.Load()
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to load database config: %w", err)
 	}
 
 	appCfg, err := app.Load()
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("failed to load application config: %w", err)
 	}
 
 	return Config{
