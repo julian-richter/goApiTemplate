@@ -19,7 +19,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("invalid CACHE_DB: %w", err)
 	}
 
-	if db < 0 || db > 65535 {
+	if db < 0 || db > 15 {
 		return Config{}, fmt.Errorf("[config] CACHE_DB must be non-negative or above 65535, got %d", db)
 	}
 
