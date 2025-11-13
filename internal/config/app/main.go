@@ -3,15 +3,16 @@ package app
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
-	"github.com/julian-richter/ApiTemplate/pkg"
+	env "github.com/julian-richter/ApiTemplate/pkg"
 )
 
 // Load initializes a Config struct by fetching environment variables with fallbacks to default values.
 func Load() (Config, error) {
-	port := env.GetEnv("APP_PORT", "8080")
+	port := strings.TrimSpace(env.GetEnv("APP_PORT", "8080"))
 
-	portNumber, err := strconv.Atoi(env.GetEnv("APP_PORT", ""))
+	portNumber, err := strconv.Atoi(port)
 	if err != nil {
 		return Config{}, fmt.Errorf("invalid APP_PORT: %w", err)
 	}

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/julian-richter/ApiTemplate/internal/config"
@@ -19,5 +18,5 @@ func main() {
 	app := fiber.New()
 
 	// Start the Fiber/v2 server
-	log.Fatal(app.Listen(strings.TrimSpace(fmt.Sprintf(":%s", cfg.App.Port))))
+	log.Fatal(app.Listen(fmt.Sprintf(":%s", cfg.App.Port)))
 }
