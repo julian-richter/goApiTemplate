@@ -25,18 +25,29 @@ func main() {
 	}
 	defer pgPool.Close()
 
+	// ------------------------------------------------------------
+	// OPTIONAL VALKEY CACHE
+	// ------------------------------------------------------------
+	var logRepo *repo.Repo
+
 	valkeyCli, err := db.NewValkeyClient(cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect Valkey: %v", err)
+		log.Printf("[warning] Valkey cache disabled: %v", err)
+		logRepo = repo.NewRepo(pgPool) // no cache
+	} else {
+		defer valkeyCli.Close()
+		log.Printf("[info] Valkey cache enabled")
+		logRepo = repo.NewRepo(pgPool, repo.WithCache(valkeyCli, "app:"))
 	}
-	defer valkeyCli.Close()
 
-	logRepo := repo.NewRepo(pgPool, repo.WithCache(valkeyCli, "app:"))
-
+	// ------------------------------------------------------------
+	// HTTP SERVER
+	// ------------------------------------------------------------
 	app := fiber.New()
 
 	// Search endpoint
 	app.Get("/logs/search", func(c *fiber.Ctx) error {
+		maxLimit := 500
 		level := c.Query("level", "")
 		messageContains := c.Query("message_contains", "")
 		sinceStr := c.Query("since", "")
@@ -44,7 +55,15 @@ func main() {
 		limit := c.QueryInt("limit", 100)
 		offset := c.QueryInt("offset", 0)
 
+		if limit <= 0 {
+			limit = 100
+		}
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+
 		var since, until *time.Time
+
 		if sinceStr != "" {
 			t, err := time.Parse(time.RFC3339, sinceStr)
 			if err != nil {
@@ -55,6 +74,7 @@ func main() {
 			}
 			since = &t
 		}
+
 		if untilStr != "" {
 			t, err := time.Parse(time.RFC3339, untilStr)
 			if err != nil {
@@ -75,7 +95,9 @@ func main() {
 			Offset:          offset,
 		}
 
-		entries, err := logRepo.Search(context.Background(), params)
+		ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+		defer cancel()
+		entries, err := logRepo.Search(ctx, params)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error":   "search failed",
@@ -83,9 +105,12 @@ func main() {
 			})
 		}
 
-		// Make sure slice is non-nil
-		if entries == nil {
-			entries = []*model.LogEntry{}
+		// Proper "no results" error
+		if len(entries) == 0 {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error":   "no log entries found",
+				"details": params,
+			})
 		}
 
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{
@@ -96,71 +121,43 @@ func main() {
 		})
 	})
 
+	// Get a single log entry
 	app.Get("/logs/:id", func(c *fiber.Ctx) error {
 		id, err := c.ParamsInt("id")
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).SendString("invalid id")
 		}
+
 		entry, err := logRepo.GetByID(context.Background(), id, true, 5*time.Minute)
 		if err != nil {
-			return c.Status(fiber.StatusNotFound).SendString(err.Error())
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": err.Error(),
+			})
 		}
+
 		return c.JSON(entry)
 	})
 
+	// Create log entry
 	app.Post("/logs", func(c *fiber.Ctx) error {
 		var input model.LogEntry
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(fiber.StatusBadRequest).SendString("invalid body")
 		}
+
+		// Force server-generated ID to prevent overwriting existing entries.
+		input.ID = 0
+
+		// Normalize timestamps: if none provided, set server-side UTC timestamp.
 		if input.Timestamp.IsZero() {
-			input.Timestamp = time.Now()
+			input.Timestamp = time.Now().UTC()
 		}
+
 		if err := logRepo.Save(context.Background(), &input); err != nil {
 			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 		}
+
 		return c.Status(fiber.StatusCreated).JSON(input)
-	})
-
-	// New: Search endpoint
-	app.Get("/logs/search", func(c *fiber.Ctx) error {
-		level := c.Query("level", "")
-		messageContains := c.Query("message_contains", "")
-		sinceStr := c.Query("since", "")
-		untilStr := c.Query("until", "")
-		limit := c.QueryInt("limit", 100)
-		offset := c.QueryInt("offset", 0)
-
-		var since, until *time.Time
-		if sinceStr != "" {
-			t, err := time.Parse(time.RFC3339, sinceStr)
-			if err != nil {
-				return c.Status(fiber.StatusBadRequest).SendString("invalid since timestamp format")
-			}
-			since = &t
-		}
-		if untilStr != "" {
-			t, err := time.Parse(time.RFC3339, untilStr)
-			if err != nil {
-				return c.Status(fiber.StatusBadRequest).SendString("invalid until timestamp format")
-			}
-			until = &t
-		}
-
-		params := repo.SearchParams{
-			Level:           level,
-			MessageContains: messageContains,
-			Since:           since,
-			Until:           until,
-			Limit:           limit,
-			Offset:          offset,
-		}
-
-		entries, err := logRepo.Search(context.Background(), params)
-		if err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
-		}
-		return c.JSON(entries)
 	})
 
 	fmt.Printf("Server listening on port %s\n", cfg.App.Port)

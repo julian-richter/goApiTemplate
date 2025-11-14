@@ -3,10 +3,12 @@ package logentry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/julian-richter/ApiTemplate/internal/db"
 	modelpkg "github.com/julian-richter/ApiTemplate/internal/models/logentry"
@@ -77,7 +79,11 @@ func (r *Repo) GetByID(ctx context.Context, id int, useCache bool, ttl time.Dura
 
 	query := strings.TrimSpace(fmt.Sprintf(SelectByIDQuery, r.tableName()))
 	row := r.pgPool.QueryRow(ctx, query, id)
-	if err := row.Scan(&entry.ID, &entry.Level, &entry.Message, &entry.Timestamp); err != nil {
+	err := row.Scan(&entry.ID, &entry.Level, &entry.Message, &entry.Timestamp)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, fmt.Errorf("Repo.GetByID: row scan error: %w", err)
 	}
 
@@ -112,9 +118,9 @@ func (r *Repo) All(ctx context.Context) ([]*modelpkg.LogEntry, error) {
 }
 
 // Search returns log entries matching filters in SearchParams.
-// It guarantees returning a non-nil slice (even if there are 0 results),
-// so that the JSON response will correctly be [] rather than null.
 func (r *Repo) Search(ctx context.Context, params SearchParams) ([]*modelpkg.LogEntry, error) {
+	const maxLimit = 1000
+
 	whereClauses := []string{"1=1"}
 	args := []interface{}{}
 	argPos := 1
@@ -144,6 +150,10 @@ func (r *Repo) Search(ctx context.Context, params SearchParams) ([]*modelpkg.Log
 	if limit <= 0 {
 		limit = 100
 	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+
 	offset := params.Offset
 	if offset < 0 {
 		offset = 0
@@ -160,12 +170,11 @@ func (r *Repo) Search(ctx context.Context, params SearchParams) ([]*modelpkg.Log
 
 	rows, err := r.pgPool.Query(ctx, query, args...)
 	if err != nil {
-		// return empty slice and error so handler can decide status code
 		return make([]*modelpkg.LogEntry, 0), fmt.Errorf("Repo.Search: query error: %w", err)
 	}
 	defer rows.Close()
 
-	result := make([]*modelpkg.LogEntry, 0) // ensures non-nil slice
+	result := make([]*modelpkg.LogEntry, 0)
 	for rows.Next() {
 		var e modelpkg.LogEntry
 		if err := rows.Scan(&e.ID, &e.Level, &e.Message, &e.Timestamp); err != nil {

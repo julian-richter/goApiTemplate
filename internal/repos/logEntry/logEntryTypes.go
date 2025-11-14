@@ -1,11 +1,15 @@
 package logentry
 
 import (
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/julian-richter/ApiTemplate/internal/db"
 )
+
+// Sentinel not-found error used by handlers.
+var ErrNotFound = errors.New("log entry not found")
 
 // RepoOption applies optional settings to Repo.
 type RepoOption func(*Repo)
