@@ -1,6 +1,7 @@
 package logentry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,22 +42,32 @@ func (r *Repo) cacheKey(id int) string {
 
 // Save persists or updates a LogEntry, and caches it if configured.
 func (r *Repo) Save(ctx context.Context, entry *modelpkg.LogEntry) error {
-	query := strings.TrimSpace(fmt.Sprintf(InsertOrUpdateQuery, r.tableName()))
+	tmplData := struct {
+		Table string
+	}{
+		Table: r.tableName(),
+	}
 
-	_, err := r.pgPool.Exec(ctx, query,
-		entry.ID,
+	var buf bytes.Buffer
+	if err := queryTmpl.ExecuteTemplate(&buf, "insert", tmplData); err != nil {
+		return fmt.Errorf("Repo.Save: template execution error: %w", err)
+	}
+	query := buf.String()
+
+	// INSERT (level, message, timestamp) VALUES ($1,$2,$3) RETURNING id
+	row := r.pgPool.QueryRow(ctx, query,
 		entry.Level,
 		entry.Message,
 		entry.Timestamp,
 	)
-	if err != nil {
-		return fmt.Errorf("Repo.Save: db exec error: %w", err)
+
+	if err := row.Scan(&entry.ID); err != nil {
+		return fmt.Errorf("Repo.Save: scanning returned id failed: %w", err)
 	}
 
 	if r.cacheClient != nil {
 		key := r.cacheKey(entry.ID)
-		b, err := json.Marshal(entry)
-		if err == nil {
+		if b, err := json.Marshal(entry); err == nil {
 			_ = r.cacheClient.Set(ctx, key, string(b), 0)
 		}
 	}
@@ -77,7 +88,17 @@ func (r *Repo) GetByID(ctx context.Context, id int, useCache bool, ttl time.Dura
 		}
 	}
 
-	query := strings.TrimSpace(fmt.Sprintf(SelectByIDQuery, r.tableName()))
+	tmplData := struct {
+		Table string
+	}{
+		Table: r.tableName(),
+	}
+	var buf bytes.Buffer
+	if err := queryTmpl.ExecuteTemplate(&buf, "selectByID", tmplData); err != nil {
+		return nil, fmt.Errorf("Repo.GetByID: template execution error: %w", err)
+	}
+	query := buf.String()
+
 	row := r.pgPool.QueryRow(ctx, query, id)
 	err := row.Scan(&entry.ID, &entry.Level, &entry.Message, &entry.Timestamp)
 	if err != nil {
@@ -88,7 +109,7 @@ func (r *Repo) GetByID(ctx context.Context, id int, useCache bool, ttl time.Dura
 	}
 
 	if useCache && r.cacheClient != nil {
-		key := r.cacheKey(id)
+		key := r.cacheKey(entry.ID)
 		if b, err := json.Marshal(&entry); err == nil {
 			_ = r.cacheClient.Set(ctx, key, string(b), ttl)
 		}
@@ -99,7 +120,17 @@ func (r *Repo) GetByID(ctx context.Context, id int, useCache bool, ttl time.Dura
 
 // All returns all log entries, no caching by default.
 func (r *Repo) All(ctx context.Context) ([]*modelpkg.LogEntry, error) {
-	query := strings.TrimSpace(fmt.Sprintf(SelectAllQuery, r.tableName()))
+	tmplData := struct {
+		Table string
+	}{
+		Table: r.tableName(),
+	}
+	var buf bytes.Buffer
+	if err := queryTmpl.ExecuteTemplate(&buf, "selectAll", tmplData); err != nil {
+		return nil, fmt.Errorf("Repo.All: template execution error: %w", err)
+	}
+	query := buf.String()
+
 	rows, err := r.pgPool.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("Repo.All: query error: %w", err)
@@ -114,6 +145,12 @@ func (r *Repo) All(ctx context.Context) ([]*modelpkg.LogEntry, error) {
 		}
 		result = append(result, &e)
 	}
+
+	// detect mid-stream errors.
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("Repo.All: rows error: %w", err)
+	}
+
 	return result, nil
 }
 
@@ -159,28 +196,44 @@ func (r *Repo) Search(ctx context.Context, params SearchParams) ([]*modelpkg.Log
 		offset = 0
 	}
 
-	query := strings.TrimSpace(fmt.Sprintf(`
-        SELECT id, level, message, timestamp
-        FROM %s
-        WHERE %s
-        ORDER BY timestamp DESC
-        LIMIT $%d OFFSET $%d
-    `, r.tableName(), strings.Join(whereClauses, " AND "), argPos, argPos+1))
+	tmplData := struct {
+		Table       string
+		WhereClause string
+		LimitPos    int
+		OffsetPos   int
+	}{
+		Table:       r.tableName(),
+		WhereClause: strings.Join(whereClauses, " AND "),
+		LimitPos:    argPos,
+		OffsetPos:   argPos + 1,
+	}
+
+	var buf bytes.Buffer
+	if err := queryTmpl.ExecuteTemplate(&buf, "search", tmplData); err != nil {
+		return nil, fmt.Errorf("Repo.Search: template execution error: %w", err)
+	}
+	query := buf.String()
+
 	args = append(args, limit, offset)
 
 	rows, err := r.pgPool.Query(ctx, query, args...)
 	if err != nil {
-		return make([]*modelpkg.LogEntry, 0), fmt.Errorf("Repo.Search: query error: %w", err)
+		return nil, fmt.Errorf("Repo.Search: query error: %w", err)
 	}
 	defer rows.Close()
 
-	result := make([]*modelpkg.LogEntry, 0)
+	var result []*modelpkg.LogEntry
 	for rows.Next() {
 		var e modelpkg.LogEntry
 		if err := rows.Scan(&e.ID, &e.Level, &e.Message, &e.Timestamp); err != nil {
-			return make([]*modelpkg.LogEntry, 0), fmt.Errorf("Repo.Search: row scan error: %w", err)
+			return nil, fmt.Errorf("Repo.Search: row scan error: %w", err)
 		}
 		result = append(result, &e)
+	}
+
+	// detect mid-stream / final iteration errors
+	if err := rows.Err(); err != nil {
+		return make([]*modelpkg.LogEntry, 0), fmt.Errorf("Repo.Search: rows iteration error: %w", err)
 	}
 
 	return result, nil

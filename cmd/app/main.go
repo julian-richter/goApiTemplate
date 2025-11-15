@@ -19,7 +19,10 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	pgPool, err := db.NewPostgresPool(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	pgPool, err := db.NewPostgresPool(ctx, cfg)
 	if err != nil {
 		log.Fatalf("Failed to open Postgres pool: %v", err)
 	}
@@ -43,7 +46,11 @@ func main() {
 	// ------------------------------------------------------------
 	// HTTP SERVER
 	// ------------------------------------------------------------
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		DisableStartupMessage: true,
+		EnablePrintRoutes:     false,
+		ServerHeader:          "ApiTemplate",
+	})
 
 	// Search endpoint
 	app.Get("/logs/search", func(c *fiber.Ctx) error {
@@ -144,9 +151,6 @@ func main() {
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(fiber.StatusBadRequest).SendString("invalid body")
 		}
-
-		// Force server-generated ID to prevent overwriting existing entries.
-		input.ID = 0
 
 		// Normalize timestamps: if none provided, set server-side UTC timestamp.
 		if input.Timestamp.IsZero() {

@@ -2,6 +2,7 @@ package logentry
 
 import (
 	"errors"
+	"text/template"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,23 +32,33 @@ type SearchParams struct {
 	Offset          int        // number of results to skip
 }
 
-// Query constants for log entry operations.
-const (
-	InsertOrUpdateQuery = `
-        INSERT INTO %s (id, level, message, timestamp)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (id) DO UPDATE
-          SET level   = EXCLUDED.level,
-              message = EXCLUDED.message,
-              timestamp = EXCLUDED.timestamp
-    `
-	SelectByIDQuery = `
-        SELECT id, level, message, timestamp
-        FROM %s
-        WHERE id = $1
-    `
-	SelectAllQuery = `
-        SELECT id, level, message, timestamp
-        FROM %s
-    `
+// Template definitions for SQL queries.
+var (
+	// Use `define` so you can reuse parts if needed later.
+	queryTmpl = template.Must(template.New("logentry_queries").Parse(`
+		{{ define "insert" }}
+			INSERT INTO {{ .Table }} (level, message, timestamp)
+			VALUES ($1, $2, $3)
+			RETURNING id
+		{{ end }}
+
+        {{ define "selectByID" }}
+			SELECT id, level, message, timestamp
+			FROM {{ .Table }}
+			WHERE id = $1
+        {{ end }}
+
+        {{ define "selectAll" }}
+			SELECT id, level, message, timestamp
+			FROM {{ .Table }}
+        {{ end }}
+
+        {{ define "search" }}
+			SELECT id, level, message, timestamp
+			FROM {{ .Table }}
+			WHERE {{ .WhereClause }}
+			ORDER BY timestamp DESC
+			LIMIT ${{ .LimitPos }} OFFSET ${{ .OffsetPos }}
+        {{ end }}
+    `))
 )

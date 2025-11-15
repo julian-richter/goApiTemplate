@@ -67,10 +67,13 @@ func NewValkeyClient(cfg config.Config) (*ValkeyClient, error) {
 		return nil, fmt.Errorf("failed to connect Valkey: %w", err)
 	}
 
-	// Optional: PING to verify connection
-	ctx := context.Background()
+	// Use a timeout context instead of context.Background.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	resp := client.Do(ctx, client.B().Ping().Build())
 	if err := resp.Error(); err != nil {
+		client.Close()
 		return nil, fmt.Errorf("valkey ping failed: %w", err)
 	}
 

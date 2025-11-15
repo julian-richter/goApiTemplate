@@ -10,7 +10,8 @@ import (
 
 // Load initializes a Config struct by fetching environment variables with fallbacks to default values.
 func Load() (Config, error) {
-	port, err := strconv.Atoi(env.GetEnv("VALKEY_PORT", "6379"))
+	rawPort := env.GetEnv("VALKEY_PORT", "6379")
+	port, err := ParsePort(rawPort)
 	if err != nil {
 		return Config{}, fmt.Errorf("invalid VALKEY_PORT: %w", err)
 	}
