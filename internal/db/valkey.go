@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/julian-richter/ApiTemplate/internal/config"
 	"github.com/valkey-io/valkey-go"
+
+	"github.com/julian-richter/ApiTemplate/internal/config"
 )
 
 type ValkeyClient struct {
@@ -33,21 +34,32 @@ func (v *ValkeyClient) Get(ctx context.Context, key string) (string, error) {
 }
 
 func (v *ValkeyClient) Set(ctx context.Context, key, value string, ttl time.Duration) error {
-	cmdSet := v.client.B().Set().Key(key).Value(value).Build()
-	resp := v.client.Do(ctx, cmdSet)
-	if err := resp.Error(); err != nil {
-		return err
-	}
+	var cmd valkey.Completed
 
 	if ttl > 0 {
-		cmdExpire := v.client.B().Expire().Key(key).Seconds(int64(ttl.Seconds())).Build()
-		resp2 := v.client.Do(ctx, cmdExpire)
-		if err2 := resp2.Error(); err2 != nil {
-			return err2
+		secs := int64(ttl.Seconds())
+		if secs < 1 {
+			secs = 1
 		}
+
+		// build SET with TTL in a single chain
+		cmd = v.client.B().
+			Set().
+			Key(key).
+			Value(value).
+			ExSeconds(secs).
+			Build()
+	} else {
+		// build SET without TTL
+		cmd = v.client.B().
+			Set().
+			Key(key).
+			Value(value).
+			Build()
 	}
 
-	return nil
+	resp := v.client.Do(ctx, cmd)
+	return resp.Error()
 }
 
 // Close implements ValkeyClientInterface.

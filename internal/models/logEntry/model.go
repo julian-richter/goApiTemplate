@@ -14,12 +14,12 @@ type LogEntry struct {
 	Timestamp time.Time `json:"timestamp" db:"timestamp"`
 }
 
-func (l *LogEntry) GetID() int {
-	return l.ID
+func (l *LogEntry) GetID() int64 {
+	return int64(l.ID)
 }
 
-func (l *LogEntry) SetID(id int) {
-	l.ID = id
+func (l *LogEntry) SetID(id int64) {
+	l.ID = int(id)
 }
 
 var _ models.Entity = (*LogEntry)(nil)

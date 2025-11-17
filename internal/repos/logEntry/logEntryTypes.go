@@ -42,6 +42,14 @@ var (
 			RETURNING id
 		{{ end }}
 
+		{{ define "update" }}
+			UPDATE {{ .Table }}
+			SET level = $1,
+			    message = $2,
+			    timestamp = $3
+			WHERE id = $4
+		{{ end }}
+
         {{ define "selectByID" }}
 			SELECT id, level, message, timestamp
 			FROM {{ .Table }}

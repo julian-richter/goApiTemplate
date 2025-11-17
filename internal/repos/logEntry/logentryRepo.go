@@ -48,23 +48,53 @@ func (r *Repo) Save(ctx context.Context, entry *modelpkg.LogEntry) error {
 		Table: r.tableName(),
 	}
 
-	var buf bytes.Buffer
-	if err := queryTmpl.ExecuteTemplate(&buf, "insert", tmplData); err != nil {
-		return fmt.Errorf("Repo.Save: template execution error: %w", err)
+	var query string
+	var err error
+
+	if entry.ID <= 0 {
+		// New entry - use INSERT with RETURNING id
+		var buf bytes.Buffer
+		if err = queryTmpl.ExecuteTemplate(&buf, "insert", tmplData); err != nil {
+			return fmt.Errorf("Repo.Save: template execution error for insert: %w", err)
+		}
+		query = buf.String()
+
+		// INSERT (level, message, timestamp) VALUES ($1,$2,$3) RETURNING id
+		err = r.pgPool.QueryRow(ctx, query,
+			entry.Level,
+			entry.Message,
+			entry.Timestamp,
+		).Scan(&entry.ID)
+
+		if err != nil {
+			return fmt.Errorf("Repo.Save: insert failed: %w", err)
+		}
+	} else {
+		// Existing entry - use UPDATE
+		var buf bytes.Buffer
+		if err = queryTmpl.ExecuteTemplate(&buf, "update", tmplData); err != nil {
+			return fmt.Errorf("Repo.Save: template execution error for update: %w", err)
+		}
+		query = buf.String()
+
+		// UPDATE table SET level=$1, message=$2, timestamp=$3 WHERE id=$4
+		tag, err := r.pgPool.Exec(ctx, query,
+			entry.Level,
+			entry.Message,
+			entry.Timestamp,
+			entry.ID,
+		)
+
+		if err != nil {
+			return fmt.Errorf("Repo.Save: update failed: %w", err)
+		}
+
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("Repo.Save: no rows affected, entry with id %d not found", entry.ID)
+		}
 	}
-	query := buf.String()
 
-	// INSERT (level, message, timestamp) VALUES ($1,$2,$3) RETURNING id
-	row := r.pgPool.QueryRow(ctx, query,
-		entry.Level,
-		entry.Message,
-		entry.Timestamp,
-	)
-
-	if err := row.Scan(&entry.ID); err != nil {
-		return fmt.Errorf("Repo.Save: scanning returned id failed: %w", err)
-	}
-
+	// Update cache if configured
 	if r.cacheClient != nil {
 		key := r.cacheKey(entry.ID)
 		if b, err := json.Marshal(entry); err == nil {

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+
 	"github.com/julian-richter/ApiTemplate/internal/config"
 	"github.com/julian-richter/ApiTemplate/internal/db"
 	model "github.com/julian-richter/ApiTemplate/internal/models/logentry"
@@ -106,9 +108,9 @@ func main() {
 		defer cancel()
 		entries, err := logRepo.Search(ctx, params)
 		if err != nil {
+			log.Printf("search error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error":   "search failed",
-				"details": err.Error(),
+				"error": "search failed",
 			})
 		}
 
@@ -135,10 +137,22 @@ func main() {
 			return c.Status(fiber.StatusBadRequest).SendString("invalid id")
 		}
 
-		entry, err := logRepo.GetByID(context.Background(), id, true, 5*time.Minute)
+		// use request context, not Background()
+		ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+		defer cancel()
+
+		entry, err := logRepo.GetByID(ctx, id, true, 5*time.Minute)
 		if err != nil {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"error": err.Error(),
+			// distinguish "not found" from real errors
+			if errors.Is(err, repo.ErrNotFound) {
+				return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+					"error": "log entry not found",
+				})
+			}
+
+			log.Printf("get log by id error: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "failed to get log entry",
 			})
 		}
 
@@ -152,13 +166,18 @@ func main() {
 			return c.Status(fiber.StatusBadRequest).SendString("invalid body")
 		}
 
-		// Normalize timestamps: if none provided, set server-side UTC timestamp.
 		if input.Timestamp.IsZero() {
 			input.Timestamp = time.Now().UTC()
 		}
 
-		if err := logRepo.Save(context.Background(), &input); err != nil {
-			return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
+		ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
+		defer cancel()
+
+		if err := logRepo.Save(ctx, &input); err != nil {
+			log.Printf("save log entry error: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "failed to save log entry",
+			})
 		}
 
 		return c.Status(fiber.StatusCreated).JSON(input)
