@@ -15,6 +15,13 @@ import (
 	repo "github.com/julian-richter/ApiTemplate/internal/repos/logentry"
 )
 
+// CreateLogEntryRequest represents the request body for creating a log entry
+type CreateLogEntryRequest struct {
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -162,26 +169,42 @@ func main() {
 
 	// Create log entry
 	app.Post("/logs", func(c *fiber.Ctx) error {
-		var input model.LogEntry
+		var input CreateLogEntryRequest
 		if err := c.BodyParser(&input); err != nil {
 			return c.Status(fiber.StatusBadRequest).SendString("invalid body")
 		}
 
-		if input.Timestamp.IsZero() {
-			input.Timestamp = time.Now().UTC()
+		// Validate required fields
+		if input.Level == "" {
+			return c.Status(fiber.StatusBadRequest).SendString("level is required")
+		}
+		if input.Message == "" {
+			return c.Status(fiber.StatusBadRequest).SendString("message is required")
+		}
+
+		// Create LogEntry from request (ID will be 0 by default, forcing INSERT)
+		logEntry := model.LogEntry{
+			Level:     input.Level,
+			Message:   input.Message,
+			Timestamp: input.Timestamp,
+		}
+
+		// Set timestamp if not provided by client
+		if logEntry.Timestamp.IsZero() {
+			logEntry.Timestamp = time.Now().UTC()
 		}
 
 		ctx, cancel := context.WithTimeout(c.Context(), 5*time.Second)
 		defer cancel()
 
-		if err := logRepo.Save(ctx, &input); err != nil {
+		if err := logRepo.Save(ctx, &logEntry); err != nil {
 			log.Printf("save log entry error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "failed to save log entry",
 			})
 		}
 
-		return c.Status(fiber.StatusCreated).JSON(input)
+		return c.Status(fiber.StatusCreated).JSON(logEntry)
 	})
 
 	fmt.Printf("Server listening on port %s\n", cfg.App.Port)

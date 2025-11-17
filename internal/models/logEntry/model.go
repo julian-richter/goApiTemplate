@@ -8,7 +8,7 @@ import (
 
 // LogEntry represents an application log entry.
 type LogEntry struct {
-	ID        int       `json:"id" db:"id"`
+	ID        int       `json:"id,omitempty" db:"id"`
 	Level     string    `json:"level" db:"level"`
 	Message   string    `json:"message" db:"message"`
 	Timestamp time.Time `json:"timestamp" db:"timestamp"`
