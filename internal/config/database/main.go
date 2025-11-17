@@ -23,9 +23,9 @@ func Load() (Config, error) {
 	return Config{
 		Host:     env.GetEnv("DB_HOST", "127.0.0.1"),
 		Port:     port,
-		User:     env.GetEnv("DB_USER", "postgres"),
-		Password: env.GetEnv("DB_PASSWORD", "password"),
-		Name:     env.GetEnv("DB_NAME", "postgres"),
-		SSLMode:  env.GetEnv("DB_SSL_MODE", "disable"),
+		User:     env.GetEnv("POSTGRES_USER", "postgres"),
+		Password: env.GetEnv("POSTGRES_PASSWORD", "password"),
+		Name:     env.GetEnv("POSTGRES_DB", "postgres"),
+		SSLMode:  env.GetEnv("POSTGRES_SSL_MODE", "disable"),
 	}, nil
 }
