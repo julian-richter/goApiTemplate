@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	dbpkg "github.com/julian-richter/ApiTemplate/internal/db"
 	modelpkg "github.com/julian-richter/ApiTemplate/internal/models/logentry"
 )
@@ -90,7 +92,7 @@ func (r *Repo) Save(ctx context.Context, entry *modelpkg.LogEntry) error {
 		}
 
 		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("Repo.Save: no rows affected, entry with id %d not found", entry.ID)
+			return ErrNotFound
 		}
 	}
 
@@ -98,7 +100,13 @@ func (r *Repo) Save(ctx context.Context, entry *modelpkg.LogEntry) error {
 	if r.cacheClient != nil {
 		key := r.cacheKey(entry.ID)
 		if b, err := json.Marshal(entry); err == nil {
-			_ = r.cacheClient.Set(ctx, key, string(b), 0)
+			if err := r.cacheClient.Set(ctx, key, string(b), 0); err != nil {
+				// Log cache set error but continue (don't return the error)
+				log.Printf("[warning] cache set failed for key %s (TTL: 0): %v", key, err)
+			}
+		} else {
+			// Log json marshal error but continue (don't return the error)
+			log.Printf("[warning] cache set failed for key %s (TTL: 0): json marshal error: %v", key, err)
 		}
 	}
 
@@ -115,6 +123,9 @@ func (r *Repo) GetByID(ctx context.Context, id int, useCache bool, ttl time.Dura
 			if err2 := json.Unmarshal([]byte(val), &entry); err2 == nil {
 				return &entry, nil
 			}
+		} else {
+			// Log cache get error but continue with DB fallback
+			log.Printf("[warning] cache get failed for key %s: %v", key, err)
 		}
 	}
 
@@ -141,7 +152,13 @@ func (r *Repo) GetByID(ctx context.Context, id int, useCache bool, ttl time.Dura
 	if useCache && r.cacheClient != nil {
 		key := r.cacheKey(entry.ID)
 		if b, err := json.Marshal(&entry); err == nil {
-			_ = r.cacheClient.Set(ctx, key, string(b), ttl)
+			if err := r.cacheClient.Set(ctx, key, string(b), ttl); err != nil {
+				// Log cache set error but continue (don't return the error)
+				log.Printf("[warning] cache set failed for key %s (TTL: %v): %v", key, ttl, err)
+			}
+		} else {
+			// Log json marshal error but continue (don't return the error)
+			log.Printf("[warning] cache set failed for key %s (TTL: %v): json marshal error: %v", key, ttl, err)
 		}
 	}
 
@@ -263,7 +280,7 @@ func (r *Repo) Search(ctx context.Context, params SearchParams) ([]*modelpkg.Log
 
 	// detect mid-stream / final iteration errors
 	if err := rows.Err(); err != nil {
-		return make([]*modelpkg.LogEntry, 0), fmt.Errorf("Repo.Search: rows iteration error: %w", err)
+		return nil, fmt.Errorf("Repo.Search: rows error: %w", err)
 	}
 
 	return result, nil

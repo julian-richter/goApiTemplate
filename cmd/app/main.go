@@ -114,11 +114,12 @@ func main() {
 			})
 		}
 
-		// Proper "no results" error
 		if len(entries) == 0 {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"error":   "no log entries found",
-				"details": params,
+			return c.Status(fiber.StatusOK).JSON(fiber.Map{
+				"data":   []model.LogEntry{},
+				"count":  0,
+				"offset": offset,
+				"limit":  limit,
 			})
 		}
 

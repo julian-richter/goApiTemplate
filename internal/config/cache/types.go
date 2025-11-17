@@ -8,7 +8,7 @@ import (
 type Port int
 
 const (
-	PortMin Port = 0
+	PortMin Port = 1
 	PortMax Port = 65535
 )
 
